@@ -1,0 +1,7 @@
+function find-port() {
+  if [ -z "$1" ]; then
+    echo "Usage: find-port <port>"
+    return 1
+  fi
+  sudo lsof -i :"$1"
+}

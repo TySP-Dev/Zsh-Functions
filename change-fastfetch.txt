@@ -1,0 +1,214 @@
+function change-fastfetch() {
+  local DIR="$HOME/.config/fastfetch"
+  local CFG="$DIR/config.jsonc"
+  local LIST=() PICK FILE NEWPATH
+  local usage="Usage:
+  change-fastfetch --list
+  change-fastfetch --show <name.txt>
+  change-fastfetch --create
+  change-fastfetch <name.txt>   # set as logo source"
+
+  # Ensure base dir/config exists
+  [[ -d "$DIR" ]] || { echo "❌ Not found: $DIR"; return 1; }
+  [[ -f "$CFG" ]] || { echo "❌ Not found: $CFG"; return 1; }
+
+  # helper: list .txt files (filenames only)
+  _cf_list() {
+    # zsh glob; fall back to find if needed
+    local f
+    for f in "$DIR"/*.txt(N); do
+      [[ -e "$f" ]] && print -r -- "${f:t}"
+    done
+  }
+
+  # helper: show a file
+  _cf_show() {
+    local name="$1"
+    if [[ -z "$name" ]]; then
+      echo "❌ Missing filename. Usage: change-fastfetch --show <file.txt>"
+      return 1
+    fi
+    if [[ "$name" == */* ]]; then
+      echo "❌ Pass only the basename like 'mushroom.txt'"
+      return 1
+    fi
+
+    local path="$DIR/$name"
+    if [[ ! -f "$path" ]]; then
+      echo "❌ Not found: $path"
+      return 1
+    fi
+
+    echo "===== $name ====="
+    if [[ -x /usr/bin/cat ]]; then
+      /usr/bin/cat "$path"
+    elif command -v cat >/dev/null 2>&1; then
+      command cat "$path"
+    elif command -v more >/dev/null 2>&1; then
+      more -f "$path"
+    else
+      echo "❌ No pager available (cat/more missing?)"
+      return 1
+    fi
+  }
+
+  # helper: show a file (avoid clobbering zsh's $path)
+_cf_show() {
+  local name="$1" logo_path
+  if [[ -z "$name" ]]; then
+    echo "❌ Missing filename. Usage: change-fastfetch --show <file.txt>"
+    return 1
+  fi
+  if [[ "$name" == */* ]]; then
+    echo "❌ Pass only the basename like 'mushroom.txt'"
+    return 1
+  fi
+
+  logo_path="$DIR/$name"
+  if [[ ! -f "$logo_path" ]]; then
+    echo "❌ Not found: $logo_path"
+    return 1
+  fi
+
+  echo "===== $name ====="
+  /usr/bin/cat "$logo_path"
+}
+
+  # helper: create a file using your editor
+  _cf_create() {
+    local name logo_path
+    print -n "Enter new ASCII art filename (e.g., mylogo.txt): "
+    read -r name
+    [[ -z "$name" ]] && { echo "❌ No name provided."; return 1; }
+    [[ "$name" != *.txt ]] && name="${name}.txt"
+    [[ "$name" == */* ]] && { echo "❌ Use a simple name, not a path."; return 1; }
+
+    logo_path="$DIR/$name"
+    command touch -- "$logo_path" || { echo "❌ Could not create $logo_path"; return 1; }
+    chmod 600 -- "$logo_path"
+    "${EDITOR:-nano}" "$logo_path"
+
+    [[ -s "$logo_path" ]] && echo "✅ Saved: $logo_path" || echo "ℹ️ File exists but is empty: $logo_path"
+  }
+
+  # helper: update "logo.source" in JSONC (comment-tolerant)
+  _cf_set_source() {
+    local logo_path="$1"
+    [[ -f "$logo_path" ]] || { echo "❌ Not found: $logo_path"; return 1; }
+
+    cp -f -- "$CFG" "$CFG.bak.$(date +%Y%m%d-%H%M%S)" || { echo "❌ Backup failed"; return 1; }
+
+    awk -v newsrc="$logo_path" '
+      BEGIN { inlogo=0; done=0 }
+      {
+        line=$0
+        if (match(line, /"logo"[[:space:]]*:/)) inlogo=1
+        if (inlogo==1 && match(line, /"source"[[:space:]]*:/)) {
+          sub(/"source"[[:space:]]*:[[:space:]]*"[^"]*"/, "\"source\": \"" newsrc "\"", line)
+          done=1
+        }
+        print line
+      }
+    ' "$CFG" | awk -v newsrc="$logo_path" '
+      BEGIN { inlogo=0; done=0 }
+      { if ($0 ~ /"logo"[[:space:]]*:/) inlogo=1
+        if (inlogo==1 && $0 ~ /"source"[[:space:]]*:/) done=1
+        buf[NR]=$0
+      }
+      END {
+        if (!done) {
+          for (i=1;i<=NR;i++) {
+            line=buf[i]
+            if (inlogo==1 && line ~ /^[[:space:]]*}\s*,?$/ && !done) {
+              sub(/^[[:space:]]*}\s*,?$/, "  \"source\": \"" newsrc "\"\n}", line)
+              done=1
+            }
+            print line
+          }
+        } else {
+          for (i=1;i<=NR;i++) print buf[i]
+        }
+      }
+    ' > "$CFG.tmp" && mv -f -- "$CFG.tmp" "$CFG" || { echo "❌ Failed to edit $CFG"; return 1; }
+
+    echo "✅ Updated logo source → $logo_path"
+  }
+
+  # helper: update "logo.source" in JSONC via awk (comment-tolerant)
+  _cf_set_source() {
+    local logo_path="$1"
+    [[ -f "$logo_path" ]] || { echo "❌ Not found: $logo_path"; return 1; }
+
+    # backup
+    /usr/bin/cp -f -- "$CFG" "$CFG.bak.$(/usr/bin/date +%Y%m%d-%H%M%S)" || {
+      echo "❌ Backup failed"; return 1; }
+
+    # replace or insert source inside "logo" object (comment-tolerant)
+    /usr/bin/awk -v newsrc="$logo_path" '
+      BEGIN { inlogo=0; done=0 }
+      {
+        line=$0
+        if (match(line, /"logo"[[:space:]]*:/)) inlogo=1
+        if (inlogo==1 && match(line, /"source"[[:space:]]*:/)) {
+          sub(/"source"[[:space:]]*:[[:space:]]*"[^"]*"/, "\"source\": \"" newsrc "\"", line)
+          done=1
+        }
+        print line
+      }
+    ' "$CFG" | /usr/bin/awk -v newsrc="$logo_path" '
+      BEGIN { inlogo=0; done=0 }
+      { if ($0 ~ /"logo"[[:space:]]*:/) inlogo=1
+        if (inlogo==1 && $0 ~ /"source"[[:space:]]*:/) done=1
+        buf[NR]=$0
+      }
+      END {
+        if (!done) {
+          for (i=1;i<=NR;i++) {
+            line=buf[i]
+            if (inlogo==1 && line ~ /^[[:space:]]*}\s*,?$/ && !done) {
+              sub(/^[[:space:]]*}\s*,?$/, "  \"source\": \"" newsrc "\"\n}", line)
+              done=1
+            }
+            print line
+          }
+        } else {
+          for (i=1;i<=NR;i++) print buf[i]
+        }
+      }
+    ' > "$CFG.tmp" || { echo "❌ Edit failed"; return 1; }
+
+    /usr/bin/mv -f -- "$CFG.tmp" "$CFG" || { echo "❌ Could not write $CFG"; return 1; }
+    echo "✅ Updated logo source → $logo_path"
+  }
+
+  case "$1" in
+    --list)
+      LIST=($(_cf_list))
+      if (( ${#LIST} == 0 )); then
+        echo "ℹ️ No .txt logos found in $DIR"
+      else
+        printf '%s\n' "${LIST[@]}"
+      fi
+      ;;
+    --show)
+      shift
+      _cf_show "$1"
+      ;;
+    --create)
+      _cf_create
+      ;;
+    ""|-h|--help)
+      echo "$usage"
+      ;;
+    *)
+      # Treat as filename to set
+      PICK="$1"
+      [[ "$PICK" != *.txt ]] && PICK="${PICK}.txt"
+      [[ "$PICK" == */* ]] && { echo "❌ Pass only the basename like 'mushroom.txt'"; return 1; }
+      FILE="$DIR/$PICK"
+      [[ -f "$FILE" ]] || { echo "❌ Not found: $FILE"; return 1; }
+      NEWPATH="$FILE"
+      _cf_set_source "$NEWPATH"
+      ;;
+  esac
+}

@@ -1,0 +1,10 @@
+function clean-cache() {
+  echo "🧹 Cleaning pacman cache..."
+  sudo paccache -r
+
+  echo "🧹 Cleaning yay cache..."
+  yay -Sc --noconfirm
+
+  echo "🧹 Cleaning Flatpak cache..."
+  flatpak uninstall --unused -y
+}
