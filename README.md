@@ -1,1 +1,1 @@
-# zsh_functions
+# Zsh-Functions
