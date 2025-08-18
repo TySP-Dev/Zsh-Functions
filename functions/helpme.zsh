@@ -1,0 +1,61 @@
+## Name: helpme
+## Desc: Pretty list of your custom functions with usage
+## Usage: helpme [name]
+function helpme() {
+  emulate -L zsh
+  setopt noshwordsplit
+
+  autoload -Uz colors && colors
+  local B=$'\e[1m' Dim=$'\e[2m' R=$'\e[0m'
+  local C="${fg[cyan]}" Y="${fg[yellow]}" G="${fg[green]}" reset="${reset_color}"
+
+  local -a FUNCS=(
+    "change-fastfetch|🎨|Manage Fastfetch ASCII logos|change-fastfetch [--list|--show <file.txt>|--create|<file.txt>]"
+    "clean-cache|🧹|Clean pacman, yay, and Flatpak caches|clean-cache"
+    "find-port|🔍|Find processes using a specific port|find-port <port>"
+    "killport|🔍|Kill the process listening on a given port|killport <port>"
+    "hist|📜|Fuzzy-search command history with fzf and execute selection|hist"
+    "ipinfo|🌐|Show local IP addresses and public IP|ipinfo"
+    "net-scan|🕸 |Scan LAN for active devices (uses nmap)|net-scan [subnet]"
+    "phone-wired|📲|Connect phone via USB and launch scrcpy|phone-wired [full]"
+    "phone-wireless|📶|Connect phone via Wi-Fi (ADB tcpip) and launch scrcpy|phone-wireless [full]"
+    "update-system|🔄|Updates system packages (pacman), AUR (yay), Flatpak, and Rust crates|update-system"
+    "weather|⛅|Show current weather (auto-detect by default)|weather [location]"
+  )
+
+  local target="$1"
+  local namecol=24  # adjust if you want a wider name column
+
+  # detail view
+  if [[ -n "$target" ]]; then
+    local f name emoji desc usage
+    for f in "${FUNCS[@]}"; do
+      IFS="|" read -r name emoji desc usage <<< "$f"
+      if [[ "$name" == "$target" ]]; then
+        printf "${B}${G}📌 %s${reset}${R}\n" "$name"
+        printf "   %s %s\n" "$emoji" "$desc"
+        printf "   %sUsage:%s %s%s%s\n" "$Dim" "$R" "$Y" "$usage" "$reset"
+        echo
+        return 0
+      fi
+    done
+    printf "❌ Unknown function: %s\n" "$target"
+    return 1
+  fi
+
+  # list view — pad name first (plain), then color the padded block
+  local f name emoji desc usage pname_pad
+  for f in "${FUNCS[@]}"; do
+    IFS="|" read -r name emoji desc usage <<< "$f"
+    # truncate with … if longer than namecol
+    local n="$name"
+    (( ${#n} > namecol )) && n="${n[1,$((namecol-1))]}…"
+    # build a plain padded block, then wrap in color so width is preserved
+    pname_pad=$(printf '%-*s' $namecol "$n")
+    printf "%s %s%s%s — %s\n" \
+      "$emoji" "$B$C" "$pname_pad" "$reset$R" "$desc"
+  done
+
+  echo
+  printf "%sTip:%s use %shelpme <name>%s for usage\n" "$Dim" "$R" "$C" "$reset"
+}
