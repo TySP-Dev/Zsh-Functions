@@ -135,6 +135,23 @@ Pretty-printed overview of all installed functions, with usage and details.
 
 ---
 
+## Custom Function
+
+- Create a new .zsh file in the functions folder
+- Add a Name, Description, Usage and any Dependencies to the top like this:
+
+```zsh
+## Name: clean-cache
+## Desc: Clean pacman, yay, and Flatpak caches
+## Usage: clean-cache
+## Requires: paccache, yay, flatpak
+```
+
+- Once you complete your function you can install it using `./install.sh`
+- Or by adding your function to the bottom of `~/.zshrc`
+
+---
+
 ## Notes
 
 - Functions are installed as blocks in your `.zshrc` between:
