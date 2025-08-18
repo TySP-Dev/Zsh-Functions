@@ -14,6 +14,7 @@ These can be easily installed/uninstalled into your `~/.zshrc` using the provide
 
 > [!IMPORTANT]
 > Both the installer and uninstaller where made for Arch
+> For other distros just add the functions you want to the end of `~/.zshrc`
 
 ---
 
