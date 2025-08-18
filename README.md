@@ -5,17 +5,16 @@ These can be easily installed/uninstalled into your `~/.zshrc` using the provide
 
 ---
 
+> [!IMPORTANT]
+> Both the installer and uninstaller where made for Arch.
+> For other distros just add the functions you want to the end of `~/.zshrc`
+
 ## Features
 
 - Curated set of zsh functions for Linux
 - Easy installer (`install.sh`) with fzf-based multi-select
 - Uninstaller (`uninstall.sh`)
 - Automatic `.zshrc` backup before modifications
-
-> [!IMPORTANT]
-> Both the installer and uninstaller where made for Arch
-> 
-> For other distros just add the functions you want to the end of `~/.zshrc`
 
 ---
 
