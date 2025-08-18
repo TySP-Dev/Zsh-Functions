@@ -112,11 +112,11 @@ Interactive fuzzy-search of shell history with `fzf`. Run a command directly fro
 
 ### 📲 `phone-wired [full]`
 Launches [scrcpy](https://github.com/Genymobile/scrcpy) over USB.  
-Use `full` for fullscreen, higher bitrate, and audio buffer.
+Use `--full` for fullscreen, higher bitrate, and audio buffer.
 
 ### 📶 `phone-wireless [full]`
 Connects to your phone via ADB Wi-Fi, then launches scrcpy.  
-Supports same `full` option.
+Supports same `--full` option.
 
 ### ⛅ `weather [location]`
 Shows the current weather. If no location given, tries to auto-detect.
