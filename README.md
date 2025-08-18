@@ -7,7 +7,8 @@ These can be easily installed/uninstalled into your `~/.zshrc` using the provide
 
 > [!IMPORTANT]
 > Both the installer and uninstaller where made for Arch<br>
-> For other distros just add the functions you want to the end of `~/.zshrc`
+> For other distros just add the functions you want to the end of `~/.zshrc`<br>
+> You can use the installer with any distro but put `N` when it asks to install missing dependents and install them manually
 
 ## Features
 
