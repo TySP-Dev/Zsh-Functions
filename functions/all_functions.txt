@@ -1,0 +1,494 @@
+function update-system() {
+  echo "🔄 Updating system packages (pacman)..."
+  sudo pacman -Syu
+
+  echo "📦 Updating AUR packages (yay)..."
+  yay -Syu
+
+  echo "📦 Updating Flatpak packages..."
+  flatpak update -y
+
+  cargo install-update -a
+
+  echo "✅ System fully updated."
+}
+
+function ipinfo() {
+  echo "🔒 Local IPs:"
+  ip -o -4 addr show | awk '{print $2": "$4}'
+  echo ""
+  echo "🌍 Public IP:"
+  curl -s https://api.ipify.org
+}
+
+function find-port() {
+  if [ -z "$1" ]; then
+    echo "Usage: find-port <port>"
+    return 1
+  fi
+  sudo lsof -i :"$1"
+}
+
+function clean-cache() {
+  echo "🧹 Cleaning pacman cache..."
+  sudo paccache -r
+
+  echo "🧹 Cleaning yay cache..."
+  yay -Sc --noconfirm
+
+  echo "🧹 Cleaning Flatpak cache..."
+  flatpak uninstall --unused -y
+}
+
+function hist() {
+  local selected
+  selected=$(history | fzf --tac --reverse --height 40% --preview="echo {}" --preview-window=up:1:wrap --bind "enter:accept")
+  if [ -n "$selected" ]; then
+    local cmd=$(echo "$selected" | sed 's/ *[0-9]* *//')
+    echo "⚡ Executing: $cmd"
+    eval "$cmd"
+  fi
+}
+
+function phone-wired() {
+  local mode="${1:-}" usb_devices usb_device
+
+  # sanity checks
+  for cmd in adb scrcpy; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "❌ Missing $cmd"; return 1; }
+  done
+
+  while true; do
+    usb_devices=(${(f)"$(
+      adb devices | awk '/device$/{print $1}' | grep -vE '^[0-9]+\.[0-9]+\.[0-9]+:'
+    )"})
+    if (( ${#usb_devices} == 0 )); then
+      echo "📲 Please plug in your phone via USB..."
+      sleep 2
+    else
+      break
+    fi
+  done
+
+  if (( ${#usb_devices} == 1 )); then
+    usb_device="${usb_devices[1]}"
+  else
+    echo "🔌 Multiple USB devices detected. Select one:"
+    usb_device=$(printf "%s\n" "${usb_devices[@]}" | fzf --prompt="Choose USB device: ")
+    [[ -z "$usb_device" ]] && echo "❌ No device selected." && return 1
+  fi
+
+  echo "🚀 Launching scrcpy on USB device: $usb_device"
+  if [[ "$mode" == "full" ]]; then
+    scrcpy -s "$usb_device" --fullscreen --audio-buffer=100 --video-bit-rate=8M
+  else
+    scrcpy -s "$usb_device"
+  fi
+}
+
+##: Connect phone via Wi-Fi (ADB tcpip) and launch scrcpy
+##: Usage: phone-wireless [full]
+function phone-wireless() {
+  local mode="${1:-}" connected_devices=() wireless_devices=() usb_devices=()
+  local d usb_device wireless_device ip wireless_id started_with_usb=0
+
+  # sanity checks
+  for cmd in adb scrcpy; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "❌ Missing $cmd"; return 1; }
+  done
+
+  echo "NOTE: Press CTRL+C to exit"
+
+  # helper: refresh device lists and partition by presence of ':'
+  _pw_refresh() {
+    connected_devices=(${(f)"$(adb devices | awk '/device$/{print $1}')"})
+    wireless_devices=()
+    usb_devices=()
+    for d in "${connected_devices[@]}"; do
+      if [[ "$d" == *:* ]]; then
+        wireless_devices+=("$d")
+      else
+        usb_devices+=("$d")
+      fi
+    done
+  }
+
+  # loop until we either have a wireless device or at least one USB
+  while true; do
+    _pw_refresh
+    if (( ${#wireless_devices} > 0 )); then
+      # already wireless — pick one and launch immediately
+      if (( ${#wireless_devices} == 1 )); then
+        wireless_device="${wireless_devices[1]}"
+      else
+        echo "📶 Multiple wireless devices detected. Select one:"
+        wireless_device=$(printf "%s\n" "${wireless_devices[@]}" | fzf --prompt="Choose wireless device: ")
+        [[ -z "$wireless_device" ]] && echo "❌ No device selected." && return 1
+      fi
+      echo "📶 Launching scrcpy for: $wireless_device"
+      if [[ "$mode" == "full" ]]; then
+        scrcpy -s "$wireless_device" --fullscreen --audio-buffer=100 --video-bit-rate=8M
+      else
+        scrcpy -s "$wireless_device"
+      fi
+      return 0
+    fi
+
+    # no wireless yet — need USB to kick off tcpip
+    if (( ${#usb_devices} == 0 )); then
+      echo "📲 Please plug in your phone via USB..."
+      sleep 2
+    else
+      started_with_usb=1
+      break
+    fi
+  done
+
+  # Use the first USB device; add fzf here if you want selection
+  usb_device="${usb_devices[1]}"
+  echo "✅ USB device detected: $usb_device"
+  adb -s "$usb_device" tcpip 5555 || { echo "❌ adb tcpip failed"; return 1; }
+  sleep 1
+
+  # Get device WLAN IP (strip CIDR if present)
+  ip=$(adb -s "$usb_device" shell ip -o -4 addr show wlan0 | awk '{print $4}' | sed 's#/.*##' | head -n1)
+  [[ -z "$ip" ]] && { echo "❌ Failed to get IP address from wlan0"; return 1; }
+
+  adb connect "$ip:5555" || { echo "❌ adb connect $ip:5555 failed"; return 1; }
+  echo "✅ Connected to $ip:5555"
+
+  # Only wait for unplug if we started wired
+  if (( started_with_usb )); then
+    echo "🔌 Waiting for USB ($usb_device) to be unplugged..."
+    while true; do
+      _pw_refresh
+      # is the original USB serial still present? if not, break
+      local still_usb=0
+      for d in "${usb_devices[@]}"; do
+        [[ "$d" == "$usb_device" ]] && { still_usb=1; break; }
+      done
+      (( still_usb )) || break
+      sleep 1
+    done
+    echo "🔌 USB unplugged."
+  fi
+
+  wireless_id="${ip}:5555"
+  echo "🚀 Launching scrcpy over Wi-Fi: $wireless_id"
+  if [[ "$mode" == "full" ]]; then
+    scrcpy -s "$wireless_id" --fullscreen --audio-buffer=100 --video-bit-rate=8M
+  else
+    scrcpy -s "$wireless_id"
+  fi
+}
+
+function net-scan() {
+  # Find default network interface
+  local iface
+  iface=$(ip route | awk '/^default/ {print $5; exit}')
+
+  if [[ -z "$iface" ]]; then
+    echo "❌ Could not detect default network interface."
+    return 1
+  fi
+
+  # Get CIDR for that interface
+  local subnet
+  subnet=$(ip -o -f inet addr show "$iface" | awk '{print $4}' | head -n1)
+
+  if [[ -z "$subnet" ]]; then
+    echo "❌ Could not detect subnet for interface $iface."
+    return 1
+  fi
+
+  echo "🔍 Scanning $subnet on interface $iface..."
+  nmap -sn "$subnet"
+}
+
+function killport() {
+  if [[ -z "$1" ]]; then
+    echo "Usage: killport <port>"
+    return 1
+  fi
+  sudo lsof -t -i tcp:"$1" | xargs -r sudo kill -9
+  echo "🛑 Killed process on port $1"
+}
+
+function weather() {
+  local location="${1:-}"
+  curl -s "wttr.in/${location}?format=3"
+}
+
+function change-fastfetch() {
+  local DIR="$HOME/.config/fastfetch"
+  local CFG="$DIR/config.jsonc"
+  local LIST=() PICK FILE NEWPATH
+  local usage="Usage:
+  change-fastfetch --list
+  change-fastfetch --show <name.txt>
+  change-fastfetch --create
+  change-fastfetch <name.txt>   # set as logo source"
+
+  # Ensure base dir/config exists
+  [[ -d "$DIR" ]] || { echo "❌ Not found: $DIR"; return 1; }
+  [[ -f "$CFG" ]] || { echo "❌ Not found: $CFG"; return 1; }
+
+  # helper: list .txt files (filenames only)
+  _cf_list() {
+    # zsh glob; fall back to find if needed
+    local f
+    for f in "$DIR"/*.txt(N); do
+      [[ -e "$f" ]] && print -r -- "${f:t}"
+    done
+  }
+
+  # helper: show a file
+  _cf_show() {
+    local name="$1"
+    if [[ -z "$name" ]]; then
+      echo "❌ Missing filename. Usage: change-fastfetch --show <file.txt>"
+      return 1
+    fi
+    if [[ "$name" == */* ]]; then
+      echo "❌ Pass only the basename like 'mushroom.txt'"
+      return 1
+    fi
+
+    local path="$DIR/$name"
+    if [[ ! -f "$path" ]]; then
+      echo "❌ Not found: $path"
+      return 1
+    fi
+
+    echo "===== $name ====="
+    if [[ -x /usr/bin/cat ]]; then
+      /usr/bin/cat "$path"
+    elif command -v cat >/dev/null 2>&1; then
+      command cat "$path"
+    elif command -v more >/dev/null 2>&1; then
+      more -f "$path"
+    else
+      echo "❌ No pager available (cat/more missing?)"
+      return 1
+    fi
+  }
+
+  # helper: show a file (avoid clobbering zsh's $path)
+_cf_show() {
+  local name="$1" logo_path
+  if [[ -z "$name" ]]; then
+    echo "❌ Missing filename. Usage: change-fastfetch --show <file.txt>"
+    return 1
+  fi
+  if [[ "$name" == */* ]]; then
+    echo "❌ Pass only the basename like 'mushroom.txt'"
+    return 1
+  fi
+
+  logo_path="$DIR/$name"
+  if [[ ! -f "$logo_path" ]]; then
+    echo "❌ Not found: $logo_path"
+    return 1
+  fi
+
+  echo "===== $name ====="
+  /usr/bin/cat "$logo_path"
+}
+
+  # helper: create a file using your editor
+  _cf_create() {
+    local name logo_path
+    print -n "Enter new ASCII art filename (e.g., mylogo.txt): "
+    read -r name
+    [[ -z "$name" ]] && { echo "❌ No name provided."; return 1; }
+    [[ "$name" != *.txt ]] && name="${name}.txt"
+    [[ "$name" == */* ]] && { echo "❌ Use a simple name, not a path."; return 1; }
+
+    logo_path="$DIR/$name"
+    command touch -- "$logo_path" || { echo "❌ Could not create $logo_path"; return 1; }
+    chmod 600 -- "$logo_path"
+    "${EDITOR:-nano}" "$logo_path"
+
+    [[ -s "$logo_path" ]] && echo "✅ Saved: $logo_path" || echo "ℹ️ File exists but is empty: $logo_path"
+  }
+
+  # helper: update "logo.source" in JSONC (comment-tolerant)
+  _cf_set_source() {
+    local logo_path="$1"
+    [[ -f "$logo_path" ]] || { echo "❌ Not found: $logo_path"; return 1; }
+
+    cp -f -- "$CFG" "$CFG.bak.$(date +%Y%m%d-%H%M%S)" || { echo "❌ Backup failed"; return 1; }
+
+    awk -v newsrc="$logo_path" '
+      BEGIN { inlogo=0; done=0 }
+      {
+        line=$0
+        if (match(line, /"logo"[[:space:]]*:/)) inlogo=1
+        if (inlogo==1 && match(line, /"source"[[:space:]]*:/)) {
+          sub(/"source"[[:space:]]*:[[:space:]]*"[^"]*"/, "\"source\": \"" newsrc "\"", line)
+          done=1
+        }
+        print line
+      }
+    ' "$CFG" | awk -v newsrc="$logo_path" '
+      BEGIN { inlogo=0; done=0 }
+      { if ($0 ~ /"logo"[[:space:]]*:/) inlogo=1
+        if (inlogo==1 && $0 ~ /"source"[[:space:]]*:/) done=1
+        buf[NR]=$0
+      }
+      END {
+        if (!done) {
+          for (i=1;i<=NR;i++) {
+            line=buf[i]
+            if (inlogo==1 && line ~ /^[[:space:]]*}\s*,?$/ && !done) {
+              sub(/^[[:space:]]*}\s*,?$/, "  \"source\": \"" newsrc "\"\n}", line)
+              done=1
+            }
+            print line
+          }
+        } else {
+          for (i=1;i<=NR;i++) print buf[i]
+        }
+      }
+    ' > "$CFG.tmp" && mv -f -- "$CFG.tmp" "$CFG" || { echo "❌ Failed to edit $CFG"; return 1; }
+
+    echo "✅ Updated logo source → $logo_path"
+  }
+
+  # helper: update "logo.source" in JSONC via awk (comment-tolerant)
+  _cf_set_source() {
+    local logo_path="$1"
+    [[ -f "$logo_path" ]] || { echo "❌ Not found: $logo_path"; return 1; }
+
+    # backup
+    /usr/bin/cp -f -- "$CFG" "$CFG.bak.$(/usr/bin/date +%Y%m%d-%H%M%S)" || {
+      echo "❌ Backup failed"; return 1; }
+
+    # replace or insert source inside "logo" object (comment-tolerant)
+    /usr/bin/awk -v newsrc="$logo_path" '
+      BEGIN { inlogo=0; done=0 }
+      {
+        line=$0
+        if (match(line, /"logo"[[:space:]]*:/)) inlogo=1
+        if (inlogo==1 && match(line, /"source"[[:space:]]*:/)) {
+          sub(/"source"[[:space:]]*:[[:space:]]*"[^"]*"/, "\"source\": \"" newsrc "\"", line)
+          done=1
+        }
+        print line
+      }
+    ' "$CFG" | /usr/bin/awk -v newsrc="$logo_path" '
+      BEGIN { inlogo=0; done=0 }
+      { if ($0 ~ /"logo"[[:space:]]*:/) inlogo=1
+        if (inlogo==1 && $0 ~ /"source"[[:space:]]*:/) done=1
+        buf[NR]=$0
+      }
+      END {
+        if (!done) {
+          for (i=1;i<=NR;i++) {
+            line=buf[i]
+            if (inlogo==1 && line ~ /^[[:space:]]*}\s*,?$/ && !done) {
+              sub(/^[[:space:]]*}\s*,?$/, "  \"source\": \"" newsrc "\"\n}", line)
+              done=1
+            }
+            print line
+          }
+        } else {
+          for (i=1;i<=NR;i++) print buf[i]
+        }
+      }
+    ' > "$CFG.tmp" || { echo "❌ Edit failed"; return 1; }
+
+    /usr/bin/mv -f -- "$CFG.tmp" "$CFG" || { echo "❌ Could not write $CFG"; return 1; }
+    echo "✅ Updated logo source → $logo_path"
+  }
+
+  case "$1" in
+    --list)
+      LIST=($(_cf_list))
+      if (( ${#LIST} == 0 )); then
+        echo "ℹ️ No .txt logos found in $DIR"
+      else
+        printf '%s\n' "${LIST[@]}"
+      fi
+      ;;
+    --show)
+      shift
+      _cf_show "$1"
+      ;;
+    --create)
+      _cf_create
+      ;;
+    ""|-h|--help)
+      echo "$usage"
+      ;;
+    *)
+      # Treat as filename to set
+      PICK="$1"
+      [[ "$PICK" != *.txt ]] && PICK="${PICK}.txt"
+      [[ "$PICK" == */* ]] && { echo "❌ Pass only the basename like 'mushroom.txt'"; return 1; }
+      FILE="$DIR/$PICK"
+      [[ -f "$FILE" ]] || { echo "❌ Not found: $FILE"; return 1; }
+      NEWPATH="$FILE"
+      _cf_set_source "$NEWPATH"
+      ;;
+  esac
+}
+
+function helpme() {
+  emulate -L zsh
+  setopt noshwordsplit
+
+  autoload -Uz colors && colors
+  local B=$'\e[1m' Dim=$'\e[2m' R=$'\e[0m'
+  local C="${fg[cyan]}" Y="${fg[yellow]}" G="${fg[green]}" reset="${reset_color}"
+
+  local -a FUNCS=(
+    "change-fastfetch|🎨|Manage Fastfetch ASCII logos|change-fastfetch [--list|--show <file.txt>|--create|<file.txt>]"
+    "clean-cache|🧹|Clean pacman, yay, and Flatpak caches|clean-cache"
+    "find-port|🔍|Find processes using a specific port|find-port <port>"
+    "killport|🔍|Kill the process listening on a given port|killport <port>"
+    "hist|📜|Fuzzy-search command history with fzf and execute selection|hist"
+    "ipinfo|🌐|Show local IP addresses and public IP|ipinfo"
+    "net-scan|🕸 |Scan LAN for active devices (uses nmap)|net-scan [subnet]"
+    "phone-wired|📲|Connect phone via USB and launch scrcpy|phone-wired [full]"
+    "phone-wireless|📶|Connect phone via Wi-Fi (ADB tcpip) and launch scrcpy|phone-wireless [full]"
+    "update-system|🔄|Updates system packages (pacman), AUR (yay), Flatpak, and Rust crates|update-system"
+    "weather|⛅|Show current weather (auto-detect by default)|weather [location]"
+  )
+
+  local target="$1"
+  local namecol=24  # adjust if you want a wider name column
+
+  # detail view
+  if [[ -n "$target" ]]; then
+    local f name emoji desc usage
+    for f in "${FUNCS[@]}"; do
+      IFS="|" read -r name emoji desc usage <<< "$f"
+      if [[ "$name" == "$target" ]]; then
+        printf "${B}${G}📌 %s${reset}${R}\n" "$name"
+        printf "   %s %s\n" "$emoji" "$desc"
+        printf "   %sUsage:%s %s%s%s\n" "$Dim" "$R" "$Y" "$usage" "$reset"
+        echo
+        return 0
+      fi
+    done
+    printf "❌ Unknown function: %s\n" "$target"
+    return 1
+  fi
+
+  # list view — pad name first (plain), then color the padded block
+  local f name emoji desc usage pname_pad
+  for f in "${FUNCS[@]}"; do
+    IFS="|" read -r name emoji desc usage <<< "$f"
+    # truncate with … if longer than namecol
+    local n="$name"
+    (( ${#n} > namecol )) && n="${n[1,$((namecol-1))]}…"
+    # build a plain padded block, then wrap in color so width is preserved
+    pname_pad=$(printf '%-*s' $namecol "$n")
+    printf "%s %s%s%s — %s\n" \
+      "$emoji" "$B$C" "$pname_pad" "$reset$R" "$desc"
+  done
+
+  echo
+  printf "%sTip:%s use %shelpme <name>%s for usage\n" "$Dim" "$R" "$C" "$reset"
+}
