@@ -1,0 +1,13 @@
+## Name: hist
+## Desc: Fuzzy-search command history with fzf and execute selection
+## Usage: hist
+## Requires: fzf, sed
+function hist() {
+  local selected
+  selected=$(history | fzf --tac --reverse --height 40% --preview="echo {}" --preview-window=up:1:wrap --bind "enter:accept")
+  if [ -n "$selected" ]; then
+    local cmd=$(echo "$selected" | sed 's/ *[0-9]* *//')
+    echo "⚡ Executing: $cmd"
+    eval "$cmd"
+  fi
+}
