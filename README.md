@@ -86,6 +86,12 @@ To just list what’s installed:
 ./uninstall.sh --list
 ```
 
+Reload your shell:
+
+```bash
+source ~/.zshrc
+```
+
 ---
 
 ## Function Reference
