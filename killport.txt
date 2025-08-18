@@ -1,8 +1,0 @@
-function killport() {
-  if [[ -z "$1" ]]; then
-    echo "Usage: killport <port>"
-    return 1
-  fi
-  sudo lsof -t -i tcp:"$1" | xargs -r sudo kill -9
-  echo "🛑 Killed process on port $1"
-}
