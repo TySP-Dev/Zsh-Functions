@@ -1,23 +1,26 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env zsh
+setopt ERR_EXIT NO_UNSET PIPE_FAIL
 
-trap 'echo "💥 Error on line $LINENO running: \"$BASH_COMMAND\""; exit 1' ERR
+trap 'echo "💥 Error on line $LINENO"; exit 1' ZERR
 
 # ===== config =====
 ZSHRC_DEFAULT="${ZSHRC:-$HOME/.zshrc}"
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 FUNCTIONS_DIR="$REPO_DIR/functions"
 MARK_PREFIX="# >>> TySP-Dev/Zsh-Functions:"
 MARK_SUFFIX="# <<< TySP-Dev/Zsh-Functions"
 # ==================
 
 # --- guards ---
+# Check if .zshrc exists
+[[ -f "$HOME/.zshrc" ]] || { echo "❌ .zshrc not found at $HOME/.zshrc - zsh must be configured first." >&2; exit 1; }
+
 if ! command -v zsh >/dev/null 2>&1; then
   echo "❌ zsh not found. Install zsh first." >&2; exit 1
 fi
 if [[ "${SHELL##*/}" != "zsh" ]]; then
   echo "⚠️  Current SHELL is '${SHELL}'. Target is zsh."
-  read -rp "Proceed and install into ~/.zshrc? [y/N] " yn
+  read "yn?Proceed and install into ~/.zshrc? [y/N] "
   [[ "${yn:-n}" =~ ^[Yy]$ ]] || exit 1
 fi
 [[ -d "$FUNCTIONS_DIR" ]] || { echo "❌ Missing: $FUNCTIONS_DIR"; exit 1; }
@@ -26,25 +29,92 @@ ZSHRC="${1:-$ZSHRC_DEFAULT}"
 touch "$ZSHRC" 2>/dev/null || { echo "❌ Cannot write $ZSHRC"; exit 1; }
 
 # --- discover function files ---
-mapfile -t ALL_FILES < <(find "$FUNCTIONS_DIR" -maxdepth 1 -type f -name "*.zsh" | sort)
+ALL_FILES=()
+while IFS= read -r line; do
+  ALL_FILES+=("$line")
+done < <(find "$FUNCTIONS_DIR" -maxdepth 1 -type f -name "*.zsh" | sort)
 ((${#ALL_FILES[@]})) || { echo "❌ No .zsh files in $FUNCTIONS_DIR"; exit 1; }
 
 echo "📦 Found ${#ALL_FILES[@]} function file(s)."
 
+# --- package manager detection ---
+detect_pm() {
+  if command -v pacman >/dev/null 2>&1; then echo pacman; return; fi
+  if command -v apt    >/dev/null 2>&1; then echo apt;    return; fi
+  if command -v dnf    >/dev/null 2>&1; then echo dnf;    return; fi
+  if command -v brew   >/dev/null 2>&1; then echo brew;   return; fi
+  echo unknown
+}
+
+# --- check and install fzf if needed ---
+install_fzf_if_missing() {
+  command -v fzf >/dev/null 2>&1 && return 0
+
+  echo "⚠️  fzf is not installed but recommended for better interactive selection."
+  pm="$(detect_pm)"
+
+  case "$pm" in
+    pacman)
+      echo "🛠  Detected Arch Linux (pacman)"
+      read "yn?Install fzf via 'sudo pacman -S fzf'? [Y/n] "
+      if [[ ! "${yn:-Y}" =~ ^[Nn]$ ]]; then
+        sudo pacman -S --needed fzf
+      fi
+      ;;
+    apt)
+      echo "🛠  Detected Debian/Ubuntu (apt)"
+      read "yn?Install fzf via 'sudo apt install fzf'? [Y/n] "
+      if [[ ! "${yn:-Y}" =~ ^[Nn]$ ]]; then
+        sudo apt update && sudo apt install -y fzf
+      fi
+      ;;
+    dnf)
+      echo "🛠  Detected Fedora/RHEL (dnf)"
+      read "yn?Install fzf via 'sudo dnf install fzf'? [Y/n] "
+      if [[ ! "${yn:-Y}" =~ ^[Nn]$ ]]; then
+        sudo dnf install -y fzf
+      fi
+      ;;
+    brew)
+      echo "🛠  Detected Homebrew (macOS/Linux)"
+      read "yn?Install fzf via 'brew install fzf'? [Y/n] "
+      if [[ ! "${yn:-Y}" =~ ^[Nn]$ ]]; then
+        brew install fzf
+      fi
+      ;;
+    *)
+      echo "ℹ️  Could not detect package manager. Please install fzf manually."
+      echo "   Visit: https://github.com/junegunn/fzf#installation"
+      return 1
+      ;;
+  esac
+}
+
+install_fzf_if_missing
+
 # --- select files ---
 declare -a PICKED
 if command -v fzf >/dev/null 2>&1; then
-  echo "🔎 fzf: Space/Tab to select, Enter to confirm."
+  echo "🔎 Using fzf for interactive selection"
+  echo "   Controls: Space/Tab=toggle • Enter=confirm • Esc/Ctrl+C=cancel"
   # Use Space and Tab to toggle selection; show a small preview of each file
-  mapfile -t PICKED < <(
+  PICKED=()
+  while IFS= read -r line; do
+    PICKED+=("$line")
+  done < <(
     printf '%s\n' "${ALL_FILES[@]##*/}" |
       fzf -m \
-          --prompt="Select functions: " \
-          --header="Space/Tab = select • Enter = confirm • Esc = cancel" \
+          --prompt="Select functions to install: " \
+          --header="⬆️⬇️ navigate • Space/Tab = toggle selection • Enter = confirm" \
           --bind 'space:toggle' \
           --bind 'tab:toggle' \
-          --preview "sed -n '1,40p' '$FUNCTIONS_DIR/{1}'" \
-          --preview-window=right:70%:wrap
+          --bind 'ctrl-a:select-all' \
+          --bind 'ctrl-d:deselect-all' \
+          --preview "bat --style=numbers,changes --color=always '$FUNCTIONS_DIR/{1}' 2>/dev/null || cat -n '$FUNCTIONS_DIR/{1}' 2>/dev/null || sed -n '1,40p' '$FUNCTIONS_DIR/{1}'" \
+          --preview-window=right:65%:wrap \
+          --height=90% \
+          --border \
+          --info=inline
   ) || true
 else
   echo "Select functions to install."
@@ -57,7 +127,8 @@ else
     IDX2BASE["$i"]="$base"
     ((i++))
   done
-  read -rp "> " -a tokens
+  echo -n "> "
+  read -r -A tokens
 
   # expand tokens into PICKED (supports 'a' and ranges like 2-5)
   if [[ "${tokens[*]}" =~ (^|[[:space:]])a([[:space:]]|$) ]]; then
@@ -131,19 +202,39 @@ declare -A CMD2PKG_PACMAN=(
   [jq]="jq"
 )
 
-detect_pm() {
-  if command -v pacman >/dev/null 2>&1; then echo pacman; return; fi
-  if command -v apt    >/dev/null 2>&1; then echo apt;    return; fi
-  if command -v dnf    >/dev/null 2>&1; then echo dnf;    return; fi
-  if command -v brew   >/dev/null 2>&1; then echo brew;   return; fi
-  echo unknown
-}
+declare -A CMD2PKG_APT=(
+  [fzf]="fzf"
+  [adb]="adb"
+  [scrcpy]="scrcpy"
+  [nmap]="nmap"
+  [curl]="curl"
+  [awk]="gawk"
+  [ip]="iproute2"
+  [lsof]="lsof"
+  [xargs]="findutils"
+  [nano]="nano"
+  [sed]="sed"
+  [jq]="jq"
+  [flatpak]="flatpak"
+  [cargo]="cargo"
+)
 
-# Bash 4+ check
-if [[ -z "${BASH_VERSINFO:-}" || "${BASH_VERSINFO[0]}" -lt 4 ]]; then
-  echo "❌ Bash 4+ required (assoc arrays). Current: ${BASH_VERSION:-unknown}" >&2
-  exit 1
-fi
+declare -A CMD2PKG_DNF=(
+  [fzf]="fzf"
+  [adb]="android-tools"
+  [scrcpy]="scrcpy"
+  [nmap]="nmap"
+  [curl]="curl"
+  [awk]="gawk"
+  [ip]="iproute2"
+  [lsof]="lsof"
+  [xargs]="findutils"
+  [nano]="nano"
+  [sed]="sed"
+  [jq]="jq"
+  [flatpak]="flatpak"
+  [cargo]="cargo"
+)
 
 # --- gather deps for selection ---
 declare -A NEEDS=()         # command -> 1 (missing)
@@ -192,26 +283,60 @@ if ((${#missing_cmds[@]} > 0)); then
   echo "🧩 Missing dependencies detected:"
   printf '  - %s\n' "${missing_cmds[@]}"
   pm="$(detect_pm)"
-  if [[ "$pm" == pacman ]]; then
-    want_pkgs=()
-    for cmd in "${missing_cmds[@]}"; do
-      pkg="${CMD2PKG_PACMAN[$cmd]:-}"
-      [[ -n "$pkg" ]] && want_pkgs+=("$pkg") || echo "   • (no package map for '$cmd' — install manually)"
-    done
-    mapfile -t want_pkgs < <(printf '%s\n' "${want_pkgs[@]}" | awk '!seen[$0]++') || true
-    if ((${#want_pkgs[@]} > 0)); then
-      echo "🛠  Arch detected. Will install via sudo pacman."
-      printf '   Packages: %s\n' "${want_pkgs[*]}"
-      read -rp "Install now? [Y/n] " yn
-      if [[ ! "${yn:-Y}" =~ ^[Nn]$ ]]; then
-        sudo pacman -S --needed "${want_pkgs[@]}"
+
+  want_pkgs=()
+  case "$pm" in
+    pacman)
+      for cmd in "${missing_cmds[@]}"; do
+        pkg="${CMD2PKG_PACMAN[$cmd]:-}"
+        [[ -n "$pkg" ]] && want_pkgs+=("$pkg") || echo "   • (no package map for '$cmd' — install manually)"
+      done
+      # Remove duplicates
+      want_pkgs=($(printf '%s\n' "${want_pkgs[@]}" | awk '!seen[$0]++'))
+      if ((${#want_pkgs[@]} > 0)); then
+        echo "🛠  Detected Arch Linux (pacman)"
+        printf '   Packages: %s\n' "${want_pkgs[*]}"
+        read "yn?Install now? [Y/n] "
+        if [[ ! "${yn:-Y}" =~ ^[Nn]$ ]]; then
+          sudo pacman -S --needed "${want_pkgs[@]}"
+        fi
       fi
-    else
-      echo "ℹ️  All required packages already installed."
-    fi
-  else
-    echo "ℹ️  Auto-install not wired for pm='$pm'. Install the commands above manually."
-  fi
+      ;;
+    apt)
+      for cmd in "${missing_cmds[@]}"; do
+        pkg="${CMD2PKG_APT[$cmd]:-}"
+        [[ -n "$pkg" ]] && want_pkgs+=("$pkg") || echo "   • (no package map for '$cmd' — install manually)"
+      done
+      want_pkgs=($(printf '%s\n' "${want_pkgs[@]}" | awk '!seen[$0]++'))
+      if ((${#want_pkgs[@]} > 0)); then
+        echo "🛠  Detected Debian/Ubuntu (apt)"
+        printf '   Packages: %s\n' "${want_pkgs[*]}"
+        read "yn?Install now? [Y/n] "
+        if [[ ! "${yn:-Y}" =~ ^[Nn]$ ]]; then
+          sudo apt update && sudo apt install -y "${want_pkgs[@]}"
+        fi
+      fi
+      ;;
+    dnf)
+      for cmd in "${missing_cmds[@]}"; do
+        pkg="${CMD2PKG_DNF[$cmd]:-}"
+        [[ -n "$pkg" ]] && want_pkgs+=("$pkg") || echo "   • (no package map for '$cmd' — install manually)"
+      done
+      want_pkgs=($(printf '%s\n' "${want_pkgs[@]}" | awk '!seen[$0]++'))
+      if ((${#want_pkgs[@]} > 0)); then
+        echo "🛠  Detected Fedora/RHEL (dnf)"
+        printf '   Packages: %s\n' "${want_pkgs[*]}"
+        read "yn?Install now? [Y/n] "
+        if [[ ! "${yn:-Y}" =~ ^[Nn]$ ]]; then
+          sudo dnf install -y "${want_pkgs[@]}"
+        fi
+      fi
+      ;;
+    *)
+      echo "ℹ️  Auto-install not supported for package manager: $pm"
+      echo "   Please install the above commands manually."
+      ;;
+  esac
 else
   echo "✅ No missing dependencies."
 fi

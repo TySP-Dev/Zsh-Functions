@@ -1,6 +1,6 @@
-#!/usr/bin/env bash
-set -euo pipefail
-trap 'echo "💥 Error on line $LINENO running: \"$BASH_COMMAND\""; exit 1' ERR
+#!/usr/bin/env zsh
+setopt ERR_EXIT NO_UNSET PIPE_FAIL
+trap 'echo "💥 Error on line $LINENO"; exit 1' ZERR
 
 # ===== config =====
 ZSHRC_DEFAULT="${ZSHRC:-$HOME/.zshrc}"
@@ -10,6 +10,20 @@ MARK_SUFFIX="# <<< TySP-Dev/Zsh-Functions"
 # ==================
 
 PROG="$(basename "$0")"
+
+# --- guards ---
+# Check if .zshrc exists
+[[ -f "$HOME/.zshrc" ]] || { echo "❌ .zshrc not found at $HOME/.zshrc - zsh must be configured first." >&2; exit 1; }
+
+# Zsh version check
+if [[ -z "${ZSH_VERSION:-}" ]]; then
+  echo "❌ This script must be run with zsh, not bash or other shells." >&2
+  exit 1
+fi
+
+if ! command -v zsh >/dev/null 2>&1; then
+  echo "❌ zsh not found. Install zsh first." >&2; exit 1
+fi
 
 usage() {
   cat <<EOF
@@ -39,8 +53,66 @@ for arg in "${@:2}"; do
   esac
 done
 
+# --- package manager detection ---
+detect_pm() {
+  if command -v pacman >/dev/null 2>&1; then echo pacman; return; fi
+  if command -v apt    >/dev/null 2>&1; then echo apt;    return; fi
+  if command -v dnf    >/dev/null 2>&1; then echo dnf;    return; fi
+  if command -v brew   >/dev/null 2>&1; then echo brew;   return; fi
+  echo unknown
+}
+
+# --- check and install fzf if needed ---
+install_fzf_if_missing() {
+  command -v fzf >/dev/null 2>&1 && return 0
+
+  echo "⚠️  fzf is not installed but recommended for better interactive selection."
+  pm="$(detect_pm)"
+
+  case "$pm" in
+    pacman)
+      echo "🛠  Detected Arch Linux (pacman)"
+      read "yn?Install fzf via 'sudo pacman -S fzf'? [Y/n] "
+      if [[ ! "${yn:-Y}" =~ ^[Nn]$ ]]; then
+        sudo pacman -S --needed fzf
+      fi
+      ;;
+    apt)
+      echo "🛠  Detected Debian/Ubuntu (apt)"
+      read "yn?Install fzf via 'sudo apt install fzf'? [Y/n] "
+      if [[ ! "${yn:-Y}" =~ ^[Nn]$ ]]; then
+        sudo apt update && sudo apt install -y fzf
+      fi
+      ;;
+    dnf)
+      echo "🛠  Detected Fedora/RHEL (dnf)"
+      read "yn?Install fzf via 'sudo dnf install fzf'? [Y/n] "
+      if [[ ! "${yn:-Y}" =~ ^[Nn]$ ]]; then
+        sudo dnf install -y fzf
+      fi
+      ;;
+    brew)
+      echo "🛠  Detected Homebrew (macOS/Linux)"
+      read "yn?Install fzf via 'brew install fzf'? [Y/n] "
+      if [[ ! "${yn:-Y}" =~ ^[Nn]$ ]]; then
+        brew install fzf
+      fi
+      ;;
+    *)
+      echo "ℹ️  Could not detect package manager. Please install fzf manually."
+      echo "   Visit: https://github.com/junegunn/fzf#installation"
+      return 1
+      ;;
+  esac
+}
+
+install_fzf_if_missing
+
 # ---- discover installed blocks ----
-mapfile -t INSTALLED < <(
+INSTALLED=()
+while IFS= read -r line; do
+  INSTALLED+=("$line")
+done < <(
   awk -v pre="$MARK_PREFIX" '
     index($0, pre) {
       rest = substr($0, index($0, pre) + length(pre))
@@ -83,16 +155,25 @@ if (( flag_all )); then
   PICKED=("${INSTALLED[@]}")
 else
   if command -v fzf >/dev/null 2>&1; then
-    echo "🔎 fzf: Space/Tab to select, Enter to confirm."
-    mapfile -t PICKED < <(
+    echo "🔎 Using fzf for interactive selection"
+    echo "   Controls: Space/Tab=toggle • Enter=confirm • Esc/Ctrl+C=cancel"
+    PICKED=()
+    while IFS= read -r line; do
+      PICKED+=("$line")
+    done < <(
       printf '%s\n' "${INSTALLED[@]}" |
         fzf -m \
-            --prompt="Select blocks to remove: " \
-            --header="Space/Tab = select • Enter = confirm • Esc = cancel" \
+            --prompt="Select blocks to uninstall: " \
+            --header="⬆️⬇️ navigate • Space/Tab = toggle selection • Enter = confirm" \
             --bind 'space:toggle' \
             --bind 'tab:toggle' \
-            --preview "awk -v pre=$(printf '%q' "$MARK_PREFIX") -v suf=$(printf '%q' "$MARK_SUFFIX") -v nm={} -f $(printf '%q' "$PREVIEW_AWK") $(printf '%q' "$ZSHRC")" \
-            --preview-window=right:70%:wrap
+            --bind 'ctrl-a:select-all' \
+            --bind 'ctrl-d:deselect-all' \
+            --preview "awk -v pre=$(printf '%q' "$MARK_PREFIX") -v suf=$(printf '%q' "$MARK_SUFFIX") -v nm={} -f $(printf '%q' "$PREVIEW_AWK") $(printf '%q' "$ZSHRC") | bat --style=numbers,changes --color=always --language=zsh 2>/dev/null || cat -n" \
+            --preview-window=right:65%:wrap \
+            --height=90% \
+            --border \
+            --info=inline
     ) || true
   else
     echo "Select blocks to remove."
@@ -104,7 +185,8 @@ else
       IDX2NAME["$i"]="$name"
       ((i++))
     done
-    read -rp "> " -a tokens
+    echo -n "> "
+    read -r -A tokens
 
     if [[ "${tokens[*]:-}" =~ (^|[[:space:]])a([[:space:]]|$) ]]; then
       PICKED=("${INSTALLED[@]}")

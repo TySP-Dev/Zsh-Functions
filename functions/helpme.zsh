@@ -11,15 +11,17 @@ function helpme() {
 
   local -a FUNCS=(
     "change-fastfetch|🎨|Manage Fastfetch ASCII logos|change-fastfetch [--list|--show <file.txt>|--create|<file.txt>]"
-    "clean-cache|🧹|Clean pacman, yay, and Flatpak caches|clean-cache"
+    "clean-cache|🧹|Clean package manager caches (auto-detects distro)|clean-cache"
     "find-port|🔍|Find processes using a specific port|find-port <port>"
-    "killport|🔍|Kill the process listening on a given port|killport <port>"
     "hist|📜|Fuzzy-search command history with fzf and execute selection|hist"
     "ipinfo|🌐|Show local IP addresses and public IP|ipinfo"
+    "killport|🛑|Kill the process listening on a given port|killport <port>"
+    "manage-backups|🗂️ |Manage and delete .zshrc backup files|manage-backups"
     "net-scan|🕸 |Scan LAN for active devices (uses nmap)|net-scan [subnet]"
     "phone-wired|📲|Connect phone via USB and launch scrcpy|phone-wired [full]"
     "phone-wireless|📶|Connect phone via Wi-Fi (ADB tcpip) and launch scrcpy|phone-wireless [full]"
-    "update-system|🔄|Updates system packages (pacman), AUR (yay), Flatpak, and Rust crates|update-system"
+    "update-functions|⬆️ |Check GitHub for function updates and apply them|update-functions [all]"
+    "update-system|🔄|Universal system updater with customizable package managers|update-system [settings]"
     "weather|⛅|Show current weather (auto-detect by default)|weather [location]"
   )
 
