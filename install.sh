@@ -10,7 +10,7 @@ FUNCTIONS_DIR="$REPO_DIR/functions"
 MARK_PREFIX="# >>> TySP-Dev/Zsh-Functions:"
 MARK_SUFFIX="# <<< TySP-Dev/Zsh-Functions"
 DEBUG=0
-[[ "$1" == "debug" ]] && DEBUG=1
+[[ "${1:-}" == "debug" ]] && DEBUG=1
 # ==================
 
 # --- guards ---
