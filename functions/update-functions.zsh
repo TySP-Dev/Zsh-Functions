@@ -34,12 +34,16 @@ function update-functions() {
   # Extract installed function names from .zshrc
   local -a installed_functions=()
   installed_functions=(${(f)"$(
-    awk -v pre="$MARK_PREFIX" '
-      index($0, pre) {
-        rest = substr($0, index($0, pre) + length(pre))
-        sub(/^[ \t]+/, "", rest)
+    awk '
+      /^[[:space:]]*#[[:space:]]*>>>[[:space:]]*TySP-Dev\/Zsh-Functions:/ {
+        # Extract everything after the marker
+        rest = $0
+        sub(/^[[:space:]]*#[[:space:]]*>>>[[:space:]]*TySP-Dev\/Zsh-Functions:[[:space:]]*/, "", rest)
         if (match(rest, /^[^ \t(]+/)) {
-          print substr(rest, RSTART, RLENGTH)
+          fname = substr(rest, RSTART, RLENGTH)
+          # Strip .zsh extension if present
+          sub(/\.zsh$/, "", fname)
+          if (length(fname) > 0) print fname
         }
       }
     ' "$ZSHRC" | sort -u
@@ -63,15 +67,15 @@ function update-functions() {
   # Helper: Extract function from .zshrc
   _extract_installed() {
     local fname="$1"
-    awk -v pre="$MARK_PREFIX" -v suf="$MARK_SUFFIX" -v nm="$fname" '
+    awk -v nm="$fname" '
       BEGIN {found=0; inside=0}
       {
-        if (!found && index($0, pre) && index($0, nm)) {
+        if (!found && /^[[:space:]]*#[[:space:]]*>>>[[:space:]]*TySP-Dev\/Zsh-Functions:/ && index($0, nm)) {
           found=1
           inside=1
           next
         }
-        if (inside && index($0, suf)) {
+        if (inside && /^[[:space:]]*#[[:space:]]*<<<[[:space:]]*TySP-Dev\/Zsh-Functions/) {
           inside=0
           exit
         }
@@ -260,11 +264,11 @@ PREVIEW_EOF
     fi
 
     # Remove old version from .zshrc
-    awk -v pre="$MARK_PREFIX" -v suf="$MARK_SUFFIX" -v nm="$fname" '
+    awk -v nm="$fname" '
       BEGIN {del=0}
       {
-        if (!del && index($0, pre) && index($0, nm)) { del=1; next }
-        if (del && index($0, suf)) { del=0; next }
+        if (!del && /^[[:space:]]*#[[:space:]]*>>>[[:space:]]*TySP-Dev\/Zsh-Functions:/ && index($0, nm)) { del=1; next }
+        if (del && /^[[:space:]]*#[[:space:]]*<<<[[:space:]]*TySP-Dev\/Zsh-Functions/) { del=0; next }
         if (!del) print
       }
     ' "$ZSHRC" > "${ZSHRC}.tmp"

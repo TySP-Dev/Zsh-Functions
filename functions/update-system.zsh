@@ -90,21 +90,21 @@ function update-system() {
     local -a menu_items=()
 
     # Build menu with current status
-    local pm status icon
+    local pm pm_status icon
     for pm in auto_detect update_functions pacman apt dnf yay flatpak snap brew cargo pip npm; do
-      status="${SETTINGS[$pm]}"
+      pm_status="${SETTINGS[$pm]}"
 
       # Determine icon and availability
       if [[ "$pm" == "auto_detect" ]]; then
         icon="🔍"
-        if [[ "$status" == "true" ]]; then
+        if [[ "$pm_status" == "true" ]]; then
           menu_items+=("$icon $pm [ENABLED] - Auto-detect and use all available package managers")
         else
           menu_items+=("$icon $pm [DISABLED] - Manually select package managers")
         fi
       elif [[ "$pm" == "update_functions" ]]; then
         icon="⬆️"
-        if [[ "$status" == "true" ]]; then
+        if [[ "$pm_status" == "true" ]]; then
           menu_items+=("$icon $pm [ON] - Update installed zsh functions from GitHub")
         else
           menu_items+=("$icon $pm [OFF] - Skip function updates")
@@ -117,7 +117,7 @@ function update-system() {
           icon="❌"
         fi
 
-        if [[ "$status" == "true" ]]; then
+        if [[ "$pm_status" == "true" ]]; then
           menu_items+=("$icon $pm [ON] - Available and enabled")
         else
           menu_items+=("$icon $pm [OFF] - $(if (( ${detected_pms[(Ie)$pm]} )); then echo "Available"; else echo "Not installed"; fi)")
@@ -164,18 +164,18 @@ function update-system() {
       # Rebuild menu
       menu_items=()
       for pm in auto_detect update_functions pacman apt dnf yay flatpak snap brew cargo pip npm; do
-        status="${SETTINGS[$pm]}"
+        pm_status="${SETTINGS[$pm]}"
 
         if [[ "$pm" == "auto_detect" ]]; then
           icon="🔍"
-          if [[ "$status" == "true" ]]; then
+          if [[ "$pm_status" == "true" ]]; then
             menu_items+=("$icon $pm [ENABLED] - Auto-detect and use all available package managers")
           else
             menu_items+=("$icon $pm [DISABLED] - Manually select package managers")
           fi
         elif [[ "$pm" == "update_functions" ]]; then
           icon="⬆️"
-          if [[ "$status" == "true" ]]; then
+          if [[ "$pm_status" == "true" ]]; then
             menu_items+=("$icon $pm [ON] - Update installed zsh functions from GitHub")
           else
             menu_items+=("$icon $pm [OFF] - Skip function updates")
@@ -187,7 +187,7 @@ function update-system() {
             icon="❌"
           fi
 
-          if [[ "$status" == "true" ]]; then
+          if [[ "$pm_status" == "true" ]]; then
             menu_items+=("$icon $pm [ON] - Available and enabled")
           else
             menu_items+=("$icon $pm [OFF] - $(if (( ${detected_pms[(Ie)$pm]} )); then echo "Available"; else echo "Not installed"; fi)")
