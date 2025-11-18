@@ -9,6 +9,8 @@ REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 FUNCTIONS_DIR="$REPO_DIR/functions"
 MARK_PREFIX="# >>> TySP-Dev/Zsh-Functions:"
 MARK_SUFFIX="# <<< TySP-Dev/Zsh-Functions"
+DEBUG=0
+[[ "$1" == "debug" ]] && DEBUG=1
 # ==================
 
 # --- guards ---
@@ -110,7 +112,7 @@ if command -v fzf >/dev/null 2>&1; then
           --bind 'tab:toggle' \
           --bind 'ctrl-a:select-all' \
           --bind 'ctrl-d:deselect-all' \
-          --preview "bat --style=numbers,changes --color=always '$FUNCTIONS_DIR/{1}' 2>/dev/null || cat -n '$FUNCTIONS_DIR/{1}' 2>/dev/null || sed -n '1,40p' '$FUNCTIONS_DIR/{1}'" \
+          --preview "bat --style=numbers,changes --color=always \"$FUNCTIONS_DIR/{1}\" 2>/dev/null || cat -n \"$FUNCTIONS_DIR/{1}\" 2>/dev/null || sed -n '1,40p' \"$FUNCTIONS_DIR/{1}\"" \
           --preview-window=right:65%:wrap \
           --height=90% \
           --border \
@@ -149,10 +151,16 @@ else
 fi
 
 # nothing chosen (cancel or blank)
+(( DEBUG )) && echo "DEBUG: PICKED array has ${#PICKED[@]} items: ${PICKED[@]}"
 ((${#PICKED[@]})) || { echo "ℹ️  Nothing selected."; exit 0; }
 
-# to full paths
-for i in "${!PICKED[@]}"; do PICKED[$i]="$FUNCTIONS_DIR/${PICKED[$i]}"; done
+# to full paths (zsh array syntax)
+PICKED_FULL=()
+for base in "${PICKED[@]}"; do
+  PICKED_FULL+=("$FUNCTIONS_DIR/$base")
+done
+PICKED=("${PICKED_FULL[@]}")
+(( DEBUG )) && echo "DEBUG: After converting to full paths: ${PICKED[@]}"
 
 # --- backup zshrc ---
 ts="$(date +%Y%m%d-%H%M%S)"
@@ -277,7 +285,7 @@ done
 
 # --- offer to install deps ---
 missing_cmds=()
-for cmd in "${!NEEDS[@]}"; do missing_cmds+=("$cmd"); done
+for cmd in "${(@k)NEEDS}"; do missing_cmds+=("$cmd"); done
 
 if ((${#missing_cmds[@]} > 0)); then
   echo "🧩 Missing dependencies detected:"
@@ -347,7 +355,9 @@ declare -i skipped=0
 : "${installed:=0}"
 : "${skipped:=0}"
 
+(( DEBUG )) && echo "DEBUG: About to process ${#PICKED[@]} files for installation"
 for file in "${PICKED[@]}"; do
+  (( DEBUG )) && echo "DEBUG: Processing file: $file"
   base="${file##*/}"
   if already_installed "$file"; then
     echo "⏭️  $base (already present)"

@@ -64,6 +64,9 @@ Run the installer:
 
 ```bash
 ./install.sh
+
+# Debug mode (shows detailed output for troubleshooting)
+./install.sh debug
 ```
 
 ### What the installer does:
@@ -457,6 +460,19 @@ Make sure they're executable and run with zsh:
 chmod +x install.sh uninstall.sh
 zsh install.sh
 ```
+
+### Installation issues?
+
+Run the installer in debug mode to see detailed output:
+
+```bash
+./install.sh debug
+```
+
+This will show:
+- Array contents during selection
+- Full file paths being processed
+- Each file being installed or skipped
 
 ### Functions not working after install?
 
