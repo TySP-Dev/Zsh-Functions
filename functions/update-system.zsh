@@ -28,7 +28,19 @@ function update-system() {
   # Load or create settings
   _load_settings() {
     if [[ -f "$SETTINGS_FILE" ]]; then
-      source "$SETTINGS_FILE"
+      # Parse settings file and populate SETTINGS array
+      while IFS='=' read -r key value; do
+        # Skip comments and empty lines
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$key" ]] && continue
+        # Trim whitespace using parameter expansion
+        key="${key#"${key%%[![:space:]]*}"}"    # remove leading whitespace
+        key="${key%"${key##*[![:space:]]}"}"    # remove trailing whitespace
+        value="${value#"${value%%[![:space:]]*}"}"  # remove leading whitespace
+        value="${value%"${value##*[![:space:]]}"}"  # remove trailing whitespace
+        # Store in SETTINGS array
+        [[ -n "$key" ]] && SETTINGS[$key]="$value"
+      done < "$SETTINGS_FILE"
     else
       # First run - save defaults
       _save_settings
@@ -236,10 +248,24 @@ function update-system() {
 
   _update_cargo() {
     echo "🦀 Updating Rust crates..."
-    if command -v cargo-install-update >/dev/null 2>&1; then
+
+    # Check if cargo-install-update is available
+    if command -v cargo-install-update >/dev/null 2>&1 || [[ -x "$HOME/.cargo/bin/cargo-install-update" ]]; then
       cargo install-update -a
     else
-      echo "   ℹ️  cargo-update not installed. Install with: cargo install cargo-update"
+      echo "   📦 cargo-update not installed. Installing..."
+      cargo install cargo-update
+
+      # Check if it was installed successfully
+      if [[ -x "$HOME/.cargo/bin/cargo-install-update" ]]; then
+        echo "   ✅ cargo-update installed successfully"
+        echo "   🔄 Running updates..."
+        cargo install-update -a
+      else
+        echo "   ❌ Failed to install cargo-update"
+        echo "   Binary not found at $HOME/.cargo/bin/cargo-install-update"
+        return 1
+      fi
     fi
   }
 

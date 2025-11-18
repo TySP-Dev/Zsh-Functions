@@ -380,7 +380,8 @@ echo "✅ Done. Installed: $installed  •  Skipped: $skipped"
 # Source the updated .zshrc if functions were installed
 if (( installed > 0 )); then
   echo "🔄 Reloading shell configuration..."
-  source "$ZSHRC"
+  # Disable strict mode temporarily for sourcing .zshrc
+  ( setopt LOCAL_OPTIONS; unsetopt ERR_EXIT NO_UNSET PIPE_FAIL; source "$ZSHRC" )
   echo "✅ Shell reloaded! Functions are now available."
 else
   echo "👉 Run:   source \"$ZSHRC\""

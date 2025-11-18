@@ -113,12 +113,16 @@ INSTALLED=()
 while IFS= read -r line; do
   INSTALLED+=("$line")
 done < <(
-  awk -v pre="$MARK_PREFIX" '
-    index($0, pre) {
-      rest = substr($0, index($0, pre) + length(pre))
-      sub(/^[ \t]+/, "", rest)
+  awk '
+    /^[[:space:]]*#[[:space:]]*>>>[[:space:]]*TySP-Dev\/Zsh-Functions:/ {
+      # Extract everything after the marker
+      rest = $0
+      sub(/^[[:space:]]*#[[:space:]]*>>>[[:space:]]*TySP-Dev\/Zsh-Functions:[[:space:]]*/, "", rest)
       if (match(rest, /^[^ \t(]+/)) {
-        print substr(rest, RSTART, RLENGTH)
+        fname = substr(rest, RSTART, RLENGTH)
+        # Strip .zsh extension if present
+        sub(/\.zsh$/, "", fname)
+        if (length(fname) > 0) print fname
       }
     }
   ' "$ZSHRC" | sort -u
@@ -140,9 +144,9 @@ PREVIEW_AWK="$(mktemp -t zfun-preview.XXXXXX.awk)"
 cat >"$PREVIEW_AWK" <<'AWK'
 BEGIN { show=0 }
 {
-  if (!show && index($0, pre) && index($0, nm)) { show=1 }
+  if (!show && /^[[:space:]]*#[[:space:]]*>>>[[:space:]]*TySP-Dev\/Zsh-Functions:/ && index($0, nm)) { show=1 }
   if (show) print
-  if (show && index($0, suf)) { show=0 }
+  if (show && /^[[:space:]]*#[[:space:]]*<<<[[:space:]]*TySP-Dev\/Zsh-Functions/) { show=0 }
 }
 AWK
 
@@ -216,11 +220,11 @@ echo "🧷 Backup: $ZSHRC.bak.$ts"
 # ---- removal helper ----
 remove_block() {
   local name="$1" infile="$2" outfile="$3"
-  awk -v pre="$MARK_PREFIX" -v suf="$MARK_SUFFIX" -v nm="$name" '
+  awk -v nm="$name" '
     BEGIN {del=0}
     {
-      if (!del && index($0, pre) && index($0, nm)) { del=1; next }
-      if (del && index($0, suf)) { del=0; next }
+      if (!del && /^[[:space:]]*#[[:space:]]*>>>[[:space:]]*TySP-Dev\/Zsh-Functions:/ && index($0, nm)) { del=1; next }
+      if (del && /^[[:space:]]*#[[:space:]]*<<<[[:space:]]*TySP-Dev\/Zsh-Functions/) { del=0; next }
       if (!del) print
     }
   ' "$infile" > "$outfile"
