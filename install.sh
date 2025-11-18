@@ -376,4 +376,12 @@ done
 
 echo ""
 echo "✅ Done. Installed: $installed  •  Skipped: $skipped"
-echo "👉 Run:   source \"$ZSHRC\""
+
+# Source the updated .zshrc if functions were installed
+if (( installed > 0 )); then
+  echo "🔄 Reloading shell configuration..."
+  source "$ZSHRC"
+  echo "✅ Shell reloaded! Functions are now available."
+else
+  echo "👉 Run:   source \"$ZSHRC\""
+fi
